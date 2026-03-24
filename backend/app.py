@@ -1,0 +1,154 @@
+"""
+KidsChat — FastAPI entry point.
+Serves the web UI and handles WebSocket connections for real-time voice chat.
+"""
+
+from contextlib import asynccontextmanager
+import json
+import logging
+from pathlib import Path
+from typing import cast
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
+
+from backend.orchestrator import Orchestrator
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+log = logging.getLogger("kidschat")
+
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+BASE = Path(__file__).resolve().parent.parent
+templates = Jinja2Templates(directory=BASE / "frontend" / "templates")
+
+
+def get_orchestrator(app: FastAPI) -> Orchestrator:
+    return cast(Orchestrator, app.state.orchestrator)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    orchestrator = get_orchestrator(app)
+    await orchestrator.initialize()
+    server_state = orchestrator.get_server_state()
+
+    if orchestrator.local_llm_ready:
+        log.info("KidsChat ready - open http://localhost:8000")
+    else:
+        log.warning(
+            f"KidsChat started in degraded mode ({server_state['text']}) - "
+            "open http://localhost:8000"
+        )
+
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="KidsChat", version="0.1.0", lifespan=lifespan)
+    app.state.orchestrator = Orchestrator()
+    app.mount("/static", StaticFiles(directory=BASE / "frontend" / "static"), name="static")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={"request": request},
+        )
+
+    # -----------------------------------------------------------------------
+    # WebSocket — real-time voice + chat
+    # -----------------------------------------------------------------------
+    @app.websocket("/ws/chat")
+    async def ws_chat(ws: WebSocket):
+        orchestrator = get_orchestrator(ws.app)
+        await ws.accept()
+        session_id = id(ws)
+        log.info(f"Client connected: {session_id}")
+        await ws.send_text(json.dumps({
+            "type": "server_state",
+            "content": orchestrator.get_server_state(),
+        }))
+
+        try:
+            while True:
+                raw = await ws.receive_text()
+                msg = json.loads(raw)
+
+                match msg.get("type"):
+
+                    # --- Text message from UI input ----------------------------
+                    case "text":
+                        user_text = msg["content"]
+                        log.info(f"[{session_id}] Text: {user_text[:80]}")
+                        async for event in orchestrator.handle_message(user_text, session_id):
+                            await ws.send_text(json.dumps(event))
+
+                    # --- Audio blob from microphone ---------------------------
+                    case "audio":
+                        import base64
+                        audio_bytes = base64.b64decode(msg["data"])
+                        sample_rate = msg.get("sampleRate", 16000)
+                        mime_type = msg.get("mimeType", "audio/raw")
+                        log.info(
+                            f"[{session_id}] Audio: {len(audio_bytes)} bytes ({mime_type})"
+                        )
+
+                        try:
+                            # 1) Transcribe
+                            await ws.send_text(json.dumps({
+                                "type": "status", "content": "Listening..."
+                            }))
+                            transcript = await orchestrator.transcribe(
+                                audio_bytes,
+                                sample_rate,
+                                mime_type,
+                            )
+                        except Exception as e:
+                            log.exception(f"Audio transcription failed for {session_id}: {e}")
+                            await ws.send_text(json.dumps({
+                                "type": "status",
+                                "content": "I had trouble hearing that. Please try again!",
+                            }))
+                            continue
+
+                        if not transcript.strip():
+                            await ws.send_text(json.dumps({
+                                "type": "status", "content": "I didn't catch that - try again!"
+                            }))
+                            continue
+
+                        # Echo the transcript so the kid sees what was heard
+                        await ws.send_text(json.dumps({
+                            "type": "user_transcript", "content": transcript
+                        }))
+
+                        # 2) Process through orchestrator
+                        async for event in orchestrator.handle_message(transcript, session_id):
+                            await ws.send_text(json.dumps(event))
+
+                    # --- Ping / keepalive -------------------------------------
+                    case "ping":
+                        await ws.send_text(json.dumps({"type": "pong"}))
+
+                    case _:
+                        log.warning(f"Unknown message type: {msg.get('type')}")
+
+        except WebSocketDisconnect:
+            log.info(f"Client disconnected: {session_id}")
+            orchestrator.clear_session(session_id)
+        except Exception as e:
+            log.exception(f"WebSocket error for {session_id}: {e}")
+            orchestrator.clear_session(session_id)
+
+    return app
+
+
+app = create_app()

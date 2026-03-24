@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KidsChat 🤖</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Mermaid.js for diagram rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: false, theme: 'forest' });</script>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="logo">
+          <span class="logo-icon">🤖</span>
+          <h1>KidsChat</h1>
+        </div>
+        <div class="status-bar">
+          <span id="connection-dot" class="dot dot-connecting"></span>
+          <span id="connection-text">Connecting...</span>
+          <span id="source-badge" class="source-badge hidden"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Chat area -->
+    <main class="chat-area" id="chat-area">
+      <div class="welcome-message">
+        <div class="welcome-avatar">🌟</div>
+        <h2>Hey there! I'm KidsChat!</h2>
+        <p>Ask me anything — I can show pictures, play sounds, explain how things work, tell jokes, do math, and lots more!</p>
+        <div class="suggestion-chips">
+          <button class="chip" data-msg="Show me a picture of a red panda">🐼 Red panda pics</button>
+          <button class="chip" data-msg="What does a cow sound like?">🐮 Play a cow sound</button>
+          <button class="chip" data-msg="Why do rainbows appear in the sky?">🌈 Why do rainbows appear?</button>
+          <button class="chip" data-msg="Tell me a joke">😄 Tell me a joke</button>
+          <button class="chip" data-msg="What's the weather in Tokyo?">🌤️ Weather in Tokyo</button>
+          <button class="chip" data-msg="What's 247 times 38?">🔢 Hard math</button>
+          <button class="chip" data-msg="Tell me a fun fact about space">🚀 Space facts</button>
+        </div>
+      </div>
+      <div id="messages"></div>
+    </main>
+
+    <!-- Input area -->
+    <footer class="input-area">
+      <div class="input-inner">
+        <button id="mic-btn" class="mic-btn" type="button" title="Hold to talk" aria-label="Hold to talk" aria-pressed="false">
+          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          <div class="mic-ripple"></div>
+        </button>
+        <div class="text-input-wrap">
+          <input
+            type="text"
+            id="text-input"
+            placeholder="Type a question or hold the mic to talk..."
+            autocomplete="off"
+          />
+          <button id="send-btn" class="send-btn" title="Send">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
