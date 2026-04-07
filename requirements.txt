@@ -18,6 +18,11 @@ faster-whisper>=1.1.0
 
 # TTS
 piper-tts>=1.4.1
+# Optional server-side HeadTTS phonetic input:
+misaki[en]>=0.9.4
+phonemizer-fork>=3.3.2
+# Optional server-side speech normalization:
+# On macOS install `pynini` from conda-forge first, then install `nemo-text-processing`
 
 # Audio processing
 numpy>=1.26.0

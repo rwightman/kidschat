@@ -13,7 +13,9 @@ from typing import AsyncGenerator
 from backend.services.llm_local import LocalLLM
 from backend.services.llm_cloud import CloudLLM
 from backend.services.stt import SpeechToText
-from backend.services.tts import TextToSpeech
+from backend.services.speech_normalizer import SpeechNormalizer
+from backend.services.speech_phonemizer import SpeechPhonemizer
+from backend.services.tts import TextToSpeech, clean_text_for_speech
 from backend.tools.registry import ToolRegistry
 from backend.tools.picture import extract_svg_payloads
 
@@ -83,6 +85,8 @@ class Orchestrator:
         self.local_llm = LocalLLM()
         self.cloud_llm = CloudLLM()
         self.stt = SpeechToText()
+        self.speech_normalizer = SpeechNormalizer()
+        self.speech_phonemizer = SpeechPhonemizer()
         self.tts = TextToSpeech()
         self.tools = ToolRegistry()
         self.local_llm_ready = False
@@ -144,6 +148,12 @@ class Orchestrator:
           {"type": "diagram",  "content": "<mermaid code>"}
           {"type": "svg",      "content": {"svg": "<svg...>", "title": "..."}}
           {"type": "sound",    "content": {"url": "...", "title": "..."}}
+          {"type": "speech",   "content": {
+              "speechText": "...",
+              "displayText": "...",
+              "inputType": "speech" | "phonetic",
+              "phoneticText": "...",
+          }}
           {"type": "audio",    "content": "<base64 audio>"}
           {"type": "source",   "content": "local" | "cloud:claude" | ...}
           {"type": "done"}
@@ -196,6 +206,7 @@ class Orchestrator:
                 svg_payloads=svg_payloads,
             )
             if speech_text:
+                yield self._speech_event(speech_text, response_text)
                 yield await self._speak(speech_text)
             yield {"type": "done"}
             return
@@ -246,6 +257,7 @@ class Orchestrator:
                 svg_payloads=svg_payloads,
             )
             if speech_text:
+                yield self._speech_event(speech_text, response_text)
                 yield await self._speak(speech_text)
             yield {"type": "done"}
             return
@@ -351,6 +363,7 @@ class Orchestrator:
             svg_payloads=svg_payloads,
         )
         if speech_text:
+            yield self._speech_event(speech_text, response_text)
             yield await self._speak(speech_text)
         yield {"type": "done"}
 
@@ -571,7 +584,9 @@ class Orchestrator:
         svg_payloads: list[str] | None = None,
     ) -> str:
         """Build a cleaner speech-only version of the visible response text."""
-        speech_text = self._strip_speech_ui_instructions(text)
+        speech_text = self._normalize_speech_text(
+            self._strip_speech_ui_instructions(text)
+        )
         if speech_text:
             return speech_text
 
@@ -592,15 +607,17 @@ class Orchestrator:
         tool_name = item["name"]
 
         if tool_name == "play_sound" and result.get("sounds"):
-            return "Here is a sound for you."
+            return self._normalize_speech_text("Here is a sound for you.")
         if tool_name == "draw_picture" and result.get("svg"):
-            return "Here is a picture for you."
+            return self._normalize_speech_text("Here is a picture for you.")
         if tool_name in {"create_diagram", "draw_diagram"} and result.get("mermaid"):
-            return "Here is a diagram to help explain it."
+            return self._normalize_speech_text("Here is a diagram to help explain it.")
         if tool_name == "search_images" and result.get("images"):
-            return "Here are some pictures for you."
+            return self._normalize_speech_text("Here are some pictures for you.")
         if result.get("text"):
-            return self._strip_speech_ui_instructions(result["text"])
+            return self._normalize_speech_text(
+                self._strip_speech_ui_instructions(result["text"])
+            )
         return ""
 
     def _strip_speech_ui_instructions(self, text: str) -> str:
@@ -623,6 +640,28 @@ class Orchestrator:
         cleaned = re.sub(r"\s{2,}", " ", cleaned)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip(" \n\t-,:;")
+
+    def _normalize_speech_text(self, text: str) -> str:
+        """Apply optional TTS-specific text normalization."""
+        if not text:
+            return ""
+        cleaned = clean_text_for_speech(text)
+        if not cleaned:
+            return ""
+        return self.speech_normalizer.normalize(cleaned)
+
+    def _speech_event(self, speech_text: str, display_text: str) -> dict:
+        """Package a speech-only event for client-side TTS/lip-sync consumers."""
+        phonetic_text = self.speech_phonemizer.phonemize(speech_text)
+        return {
+            "type": "speech",
+            "content": {
+                "speechText": speech_text,
+                "displayText": display_text,
+                "inputType": "phonetic" if phonetic_text else "speech",
+                "phoneticText": phonetic_text,
+            },
+        }
 
     def _extract_markdown_images(self, text: str) -> tuple[str, list[dict]]:
         """Strip Markdown image tags from model text and convert them to UI images."""

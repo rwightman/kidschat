@@ -27,6 +27,7 @@
   let recordingStartPromise = null;
   let welcomeVisible = true;
   let pingTimerId = null;
+  let suppressNextServerAudio = false;
 
   // ---- WebSocket ----
   function connect() {
@@ -127,11 +128,22 @@
         addSound(msg.content);
         break;
 
+      case "speech":
+        suppressNextServerAudio = Boolean(
+          window.kidschatAvatar?.enqueueSpeech?.(msg.content)
+        );
+        break;
+
       case "audio":
+        if (suppressNextServerAudio) {
+          suppressNextServerAudio = false;
+          break;
+        }
         if (msg.content) playAudio(msg.content);
         break;
 
       case "done":
+        suppressNextServerAudio = false;
         currentBotBubble = null;
         currentImages = [];
         break;

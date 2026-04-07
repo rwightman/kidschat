@@ -64,13 +64,44 @@ class RecordingTTS:
         return None
 
 
+class FakeSpeechNormalizer:
+    def __init__(self, prefix="normalized: "):
+        self.prefix = prefix
+        self.calls = []
+
+    def normalize(self, text):
+        self.calls.append(text)
+        return f"{self.prefix}{text}"
+
+
+class NullSpeechPhonemizer:
+    def __init__(self):
+        self.calls = []
+
+    def phonemize(self, text):
+        self.calls.append(text)
+        return None
+
+
+class FakeSpeechPhonemizer:
+    def __init__(self, prefix="phonetic: "):
+        self.prefix = prefix
+        self.calls = []
+
+    def phonemize(self, text):
+        self.calls.append(text)
+        return f"{self.prefix}{text}"
+
+
 async def _collect_events(orchestrator, message: str, session_id: int):
     return [event async for event in orchestrator.handle_message(message, session_id)]
 
 
 @pytest.fixture
 def fresh_orchestrator():
-    return Orchestrator()
+    orchestrator = Orchestrator()
+    orchestrator.speech_phonemizer = NullSpeechPhonemizer()
+    return orchestrator
 
 
 def test_tool_results_are_passed_to_followup_prompt(fresh_orchestrator):
@@ -286,10 +317,80 @@ def test_tts_uses_cleaned_speech_text_instead_of_display_text(fresh_orchestrator
         ]
     )
     fresh_orchestrator.tts = RecordingTTS()
+    fresh_orchestrator.speech_normalizer = FakeSpeechNormalizer()
 
     events = asyncio.run(_collect_events(fresh_orchestrator, "What does a cat sound like?", 808))
 
+    assert [event["content"] for event in events if event["type"] == "speech"] == [
+        {
+            "speechText": "normalized: Here’s a little cat meowing sound for you",
+            "displayText": "Here’s a little cat meowing sound for you 😺 just click the play button to hear it!",
+            "inputType": "speech",
+            "phoneticText": None,
+        }
+    ]
     assert [event["content"] for event in events if event["type"] == "text"] == [
         "Here’s a little cat meowing sound for you 😺 just click the play button to hear it!"
     ]
-    assert fresh_orchestrator.tts.calls == ["Here’s a little cat meowing sound for you 😺"]
+    assert fresh_orchestrator.tts.calls == ["normalized: Here’s a little cat meowing sound for you"]
+    assert fresh_orchestrator.speech_normalizer.calls == [
+        "Here’s a little cat meowing sound for you"
+    ]
+
+
+def test_speech_text_cleans_markdown_before_avatar_and_tts(fresh_orchestrator):
+    fresh_orchestrator.local_llm_ready = True
+    fresh_orchestrator.local_llm = FakeLocalLLM(
+        [
+            {
+                "content": "**Cool fact!** A _rainbow_ can appear when sunlight bends through raindrops.",
+                "tool_calls": None,
+            }
+        ]
+    )
+    fresh_orchestrator.tts = RecordingTTS()
+    fresh_orchestrator.speech_normalizer = FakeSpeechNormalizer()
+
+    events = asyncio.run(_collect_events(fresh_orchestrator, "Give me a fact", 909))
+
+    assert [event["content"] for event in events if event["type"] == "speech"] == [
+        {
+            "speechText": "normalized: Cool fact! A rainbow can appear when sunlight bends through raindrops.",
+            "displayText": "**Cool fact!** A _rainbow_ can appear when sunlight bends through raindrops.",
+            "inputType": "speech",
+            "phoneticText": None,
+        }
+    ]
+    assert fresh_orchestrator.tts.calls == [
+        "normalized: Cool fact! A rainbow can appear when sunlight bends through raindrops."
+    ]
+    assert fresh_orchestrator.speech_normalizer.calls == [
+        "Cool fact! A rainbow can appear when sunlight bends through raindrops."
+    ]
+
+
+def test_speech_event_can_include_server_side_phonetic_text(fresh_orchestrator):
+    fresh_orchestrator.local_llm_ready = True
+    fresh_orchestrator.local_llm = FakeLocalLLM(
+        [
+            {
+                "content": "The wind is strong today.",
+                "tool_calls": None,
+            }
+        ]
+    )
+    fresh_orchestrator.tts = RecordingTTS()
+    fresh_orchestrator.speech_normalizer = FakeSpeechNormalizer(prefix="")
+    fresh_orchestrator.speech_phonemizer = FakeSpeechPhonemizer(prefix="ðə wˈɪnd | ")
+
+    events = asyncio.run(_collect_events(fresh_orchestrator, "Tell me the weather", 910))
+
+    assert [event["content"] for event in events if event["type"] == "speech"] == [
+        {
+            "speechText": "The wind is strong today.",
+            "displayText": "The wind is strong today.",
+            "inputType": "phonetic",
+            "phoneticText": "ðə wˈɪnd | The wind is strong today.",
+        }
+    ]
+    assert fresh_orchestrator.speech_phonemizer.calls == ["The wind is strong today."]

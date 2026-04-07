@@ -20,6 +20,44 @@ def test_index_route_renders(monkeypatch):
 
     assert response.status_code == 200
     assert "KidsChat" in response.text
+    assert 'data-avatar-url="/static/avatars/julia.glb"' in response.text
+
+
+def test_index_route_exposes_avatar_config(monkeypatch):
+    monkeypatch.setenv("TALKING_HEAD_CHARACTER", "brunette")
+    monkeypatch.setenv("HEADTTS_VOICE", "am_fenrir")
+    monkeypatch.setenv("HEADTTS_LANGUAGE", "en-us")
+    monkeypatch.setenv("HEADTTS_DICTIONARY_URL", "https://cdn.example.org/headtts/dictionaries/")
+    monkeypatch.setenv("TALKING_HEAD_BODY", "F")
+
+    app = create_app()
+    monkeypatch.setattr(app.state.orchestrator, "initialize", _fake_initialize)
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert (
+        'data-avatar-url="https://raw.githubusercontent.com/met4citizen/TalkingHead/main/avatars/brunette.glb"'
+        in response.text
+    )
+    assert 'data-avatar-voice="am_fenrir"' in response.text
+    assert 'data-avatar-language="en-us"' in response.text
+    assert 'data-avatar-dictionary-url="https://cdn.example.org/headtts/dictionaries/"' in response.text
+    assert 'data-avatar-body="F"' in response.text
+
+
+def test_index_route_allows_disabling_headtts_dictionary(monkeypatch):
+    monkeypatch.setenv("HEADTTS_DICTIONARY_URL", "null")
+
+    app = create_app()
+    monkeypatch.setattr(app.state.orchestrator, "initialize", _fake_initialize)
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'data-avatar-dictionary-url=""' in response.text
 
 
 def test_audio_websocket_message_is_transcribed_and_processed(monkeypatch):

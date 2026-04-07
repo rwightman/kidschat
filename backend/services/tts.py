@@ -46,6 +46,54 @@ SCREEN_LANGUAGE_RE = re.compile(
 )
 
 
+def clean_text_for_speech(text: str, preserve_line_breaks: bool = False) -> str:
+    """Strip markdown and screen-only text for natural speech output."""
+    # Remove fenced/inline code before generic markdown cleanup.
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"`(.*?)`", r"\1", text)
+    # Convert Markdown images/links to their visible labels.
+    text = re.sub(r"!\[(.*?)\]\(.*?\)", r"\1", text)
+    text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
+    # Drop common Markdown block syntax that sounds awkward when spoken.
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = re.sub(r"(?m)^\s{0,3}>\s?", "", text)
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "", text)
+    text = re.sub(r"(?m)^\s*\d+\.\s+", "", text)
+    # Remove markdown emphasis markers.
+    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}(.*?)_{1,3}", r"\1", text)
+    text = re.sub(r"~~(.*?)~~", r"\1", text)
+    # Remove [ESCALATE] markers
+    text = re.sub(r"\[ESCALATE\].*", "", text)
+    # Remove emoji and similar symbols that sound awkward in TTS
+    text = EMOJI_RE.sub("", text)
+    # Remove screen-specific instructions that should not be spoken
+    text = SCREEN_LANGUAGE_RE.sub("", text)
+    text = re.sub(r"(?i)\b(?:in|on)\s+the\s+app\b", "", text)
+    text = re.sub(r"(?i)\b(?:on\s+the\s+card|in\s+the\s+card)\b", "", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+
+    if preserve_line_breaks:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text).strip()
+    else:
+        text = re.sub(r"\s+", " ", text).strip()
+
+    # Truncate very long responses for TTS (read first ~500 chars)
+    compact_text = re.sub(r"\s+", " ", text).strip()
+    if len(compact_text) > 500:
+        # Find a sentence boundary near 500 chars
+        cutoff = compact_text[:500].rfind(".")
+        if cutoff > 200:
+            text = compact_text[: cutoff + 1]
+        else:
+            text = compact_text[:500] + "..."
+
+    return text
+
+
 class TextToSpeech:
     def __init__(self):
         self._piper_voice = None
@@ -238,39 +286,4 @@ class TextToSpeech:
 
     def _clean_for_speech(self, text: str, preserve_line_breaks: bool = False) -> str:
         """Strip markdown and special formatting for natural speech."""
-        # Remove markdown bold/italic
-        text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
-        # Remove markdown links
-        text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
-        # Remove code blocks
-        text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
-        text = re.sub(r"`(.*?)`", r"\1", text)
-        # Remove [ESCALATE] markers
-        text = re.sub(r"\[ESCALATE\].*", "", text)
-        # Remove emoji and similar symbols that sound awkward in TTS
-        text = EMOJI_RE.sub("", text)
-        # Remove screen-specific instructions that should not be spoken
-        text = SCREEN_LANGUAGE_RE.sub("", text)
-        text = re.sub(r"(?i)\b(?:in|on)\s+the\s+app\b", "", text)
-        text = re.sub(r"(?i)\b(?:on\s+the\s+card|in\s+the\s+card)\b", "", text)
-        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
-
-        if preserve_line_breaks:
-            text = text.replace("\r\n", "\n").replace("\r", "\n")
-            text = re.sub(r"[ \t]+\n", "\n", text)
-            text = re.sub(r"\n{3,}", "\n\n", text)
-            text = re.sub(r"[ \t]{2,}", " ", text).strip()
-        else:
-            text = re.sub(r"\s+", " ", text).strip()
-
-        # Truncate very long responses for TTS (read first ~500 chars)
-        compact_text = re.sub(r"\s+", " ", text).strip()
-        if len(compact_text) > 500:
-            # Find a sentence boundary near 500 chars
-            cutoff = compact_text[:500].rfind(".")
-            if cutoff > 200:
-                text = compact_text[: cutoff + 1]
-            else:
-                text = compact_text[:500] + "..."
-
-        return text
+        return clean_text_for_speech(text, preserve_line_breaks=preserve_line_breaks)

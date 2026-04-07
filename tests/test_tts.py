@@ -150,11 +150,11 @@ def test_say_tts_returns_none_when_conversion_fails(monkeypatch):
     assert audio_b64 is None
 
 
-def test_clean_for_speech_removes_emoji_and_screen_instructions():
+def test_clean_for_speech_removes_markdown_emoji_and_screen_instructions():
     tts = TextToSpeech()
 
     cleaned = tts._clean_for_speech(
-        "Here’s a little cat meowing sound for you 😺 just click the play button to hear it!"
+        "**Here’s** a little _cat_ meowing sound for you 😺 just click the play button to hear it!"
     )
 
     assert cleaned == "Here’s a little cat meowing sound for you"

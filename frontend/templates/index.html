@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KidsChat 🤖</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+        "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.6/modules/talkinghead.mjs",
+        "headtts": "https://cdn.jsdelivr.net/npm/@met4citizen/headtts@1.2/+esm"
+      }
+    }
+  </script>
   <!-- Mermaid.js for diagram rendering -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>mermaid.initialize({ startOnLoad: false, theme: 'forest' });</script>
@@ -26,54 +36,97 @@
       </div>
     </header>
 
-    <!-- Chat area -->
-    <main class="chat-area" id="chat-area">
-      <div class="welcome-message">
-        <div class="welcome-avatar">🌟</div>
-        <h2>Hey there! I'm KidsChat!</h2>
-        <p>Ask me anything — I can show pictures, play sounds, explain how things work, tell jokes, do math, and lots more!</p>
-        <div class="suggestion-chips">
-          <button class="chip" data-msg="Show me a picture of a red panda">🐼 Red panda pics</button>
-          <button class="chip" data-msg="What does a cow sound like?">🐮 Play a cow sound</button>
-          <button class="chip" data-msg="Why do rainbows appear in the sky?">🌈 Why do rainbows appear?</button>
-          <button class="chip" data-msg="Tell me a joke">😄 Tell me a joke</button>
-          <button class="chip" data-msg="What's the weather in Tokyo?">🌤️ Weather in Tokyo</button>
-          <button class="chip" data-msg="What's 247 times 38?">🔢 Hard math</button>
-          <button class="chip" data-msg="Tell me a fun fact about space">🚀 Space facts</button>
-        </div>
-      </div>
-      <div id="messages"></div>
-    </main>
+    <div class="app-body">
+      <section class="chat-shell">
+        <!-- Chat area -->
+        <main class="chat-area" id="chat-area">
+          <div class="welcome-message">
+            <div class="welcome-avatar">🌟</div>
+            <h2>Hey there! I'm KidsChat!</h2>
+            <p>Ask me anything — I can show pictures, play sounds, explain how things work, tell jokes, do math, and lots more!</p>
+            <div class="suggestion-chips">
+              <button class="chip" data-msg="Show me a picture of a red panda">🐼 Red panda pics</button>
+              <button class="chip" data-msg="What does a cow sound like?">🐮 Play a cow sound</button>
+              <button class="chip" data-msg="Why do rainbows appear in the sky?">🌈 Why do rainbows appear?</button>
+              <button class="chip" data-msg="Tell me a joke">😄 Tell me a joke</button>
+              <button class="chip" data-msg="What's the weather in Tokyo?">🌤️ Weather in Tokyo</button>
+              <button class="chip" data-msg="What's 247 times 38?">🔢 Hard math</button>
+              <button class="chip" data-msg="Tell me a fun fact about space">🚀 Space facts</button>
+            </div>
+          </div>
+          <div id="messages"></div>
+        </main>
 
-    <!-- Input area -->
-    <footer class="input-area">
-      <div class="input-inner">
-        <button id="mic-btn" class="mic-btn" type="button" title="Hold to talk" aria-label="Hold to talk" aria-pressed="false">
-          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
-          </svg>
-          <div class="mic-ripple"></div>
-        </button>
-        <div class="text-input-wrap">
-          <input
-            type="text"
-            id="text-input"
-            placeholder="Type a question or hold the mic to talk..."
-            autocomplete="off"
-          />
-          <button id="send-btn" class="send-btn" title="Send">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
-          </button>
+        <!-- Input area -->
+        <footer class="input-area">
+          <div class="input-inner">
+            <button id="mic-btn" class="mic-btn" type="button" title="Hold to talk" aria-label="Hold to talk" aria-pressed="false">
+              <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+              <div class="mic-ripple"></div>
+            </button>
+            <div class="text-input-wrap">
+              <input
+                type="text"
+                id="text-input"
+                placeholder="Type a question or hold the mic to talk..."
+                autocomplete="off"
+              />
+              <button id="send-btn" class="send-btn" title="Send">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </footer>
+      </section>
+
+      <aside
+        id="avatar-shell"
+        class="avatar-shell"
+        data-avatar-character="{{ avatar_config.character }}"
+        data-avatar-url="{{ avatar_config.url }}"
+        data-avatar-body="{{ avatar_config.body }}"
+        data-avatar-voice="{{ avatar_config.voice }}"
+        data-avatar-language="{{ avatar_config.language }}"
+        data-avatar-dictionary-url="{{ avatar_config.dictionary_url }}"
+      >
+        <div class="avatar-card">
+          <div class="avatar-card-head">
+            <div>
+              <p class="avatar-eyebrow">KidsChat Friend</p>
+              <h2>Talking Head</h2>
+            </div>
+            <button id="avatar-toggle" class="avatar-toggle" type="button" aria-pressed="true">
+              Avatar Voice On
+            </button>
+          </div>
+
+          <div id="avatar-stage" class="avatar-stage" aria-live="polite">
+            <div id="avatar-stage-placeholder" class="avatar-stage-placeholder">
+              Warming up after your first click
+            </div>
+          </div>
+
+          <div class="avatar-meta">
+            <div id="avatar-status" class="avatar-status" data-tone="idle">
+              Loading avatar and voice...
+            </div>
+            <p id="avatar-note" class="avatar-note">
+              Desktop Chrome or Edge works best for the WebGPU voice. The first load can take a bit. Until the avatar is ready, KidsChat uses its standard voice.
+            </p>
+          </div>
         </div>
-      </div>
-    </footer>
+      </aside>
+    </div>
   </div>
 
   <script src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/avatar.js"></script>
 </body>
 </html>
