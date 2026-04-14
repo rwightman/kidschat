@@ -26,50 +26,59 @@ class FakeArray:
 def install_dependency_stubs() -> None:
     """Install lightweight module stubs for optional runtime dependencies."""
     if "ollama" not in sys.modules:
-        ollama = ModuleType("ollama")
+        try:
+            import ollama  # noqa: F401
+        except Exception:
+            ollama = ModuleType("ollama")
 
-        class AsyncClient:
-            def __init__(self, host=None):
-                self.host = host
+            class AsyncClient:
+                def __init__(self, host=None):
+                    self.host = host
 
-            async def list(self):
-                return SimpleNamespace(models=[])
+                async def list(self):
+                    return SimpleNamespace(models=[])
 
-            async def chat(self, **kwargs):
-                raise AssertionError("Unexpected call to stub ollama.AsyncClient.chat")
+                async def chat(self, **kwargs):
+                    raise AssertionError("Unexpected call to stub ollama.AsyncClient.chat")
 
-        ollama.AsyncClient = AsyncClient
-        sys.modules["ollama"] = ollama
+            ollama.AsyncClient = AsyncClient
+            sys.modules["ollama"] = ollama
 
     if "httpx" not in sys.modules:
-        httpx = ModuleType("httpx")
+        try:
+            import httpx  # noqa: F401
+        except Exception:
+            httpx = ModuleType("httpx")
 
-        class AsyncClient:
-            async def __aenter__(self):
-                return self
+            class AsyncClient:
+                async def __aenter__(self):
+                    return self
 
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
 
-            async def get(self, *args, **kwargs):
-                raise AssertionError("Unexpected call to stub httpx.AsyncClient.get")
+                async def get(self, *args, **kwargs):
+                    raise AssertionError("Unexpected call to stub httpx.AsyncClient.get")
 
-        httpx.AsyncClient = AsyncClient
-        sys.modules["httpx"] = httpx
+            httpx.AsyncClient = AsyncClient
+            sys.modules["httpx"] = httpx
 
     if "numpy" not in sys.modules:
-        numpy = ModuleType("numpy")
-        numpy.int16 = "int16"
-        numpy.float32 = "float32"
+        try:
+            import numpy  # noqa: F401
+        except Exception:
+            numpy = ModuleType("numpy")
+            numpy.int16 = "int16"
+            numpy.float32 = "float32"
 
-        def frombuffer(data, dtype=None):
-            array = FakeArray(data)
-            array.dtype = dtype
-            return array
+            def frombuffer(data, dtype=None):
+                array = FakeArray(data)
+                array.dtype = dtype
+                return array
 
-        numpy.frombuffer = frombuffer
-        numpy.FakeArray = FakeArray
-        sys.modules["numpy"] = numpy
+            numpy.frombuffer = frombuffer
+            numpy.FakeArray = FakeArray
+            sys.modules["numpy"] = numpy
 
 
 install_dependency_stubs()

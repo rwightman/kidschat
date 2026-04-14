@@ -79,6 +79,25 @@ If a question is too complex for you to answer well, respond with exactly:
 [ESCALATE] followed by a brief reason why.
 """
 
+VISION_SYSTEM_PROMPT = """\
+You are KidsChat, a friendly, enthusiastic AI assistant for children.
+
+The child shared a photo or webcam snapshot. Describe what is plainly visible
+in simple, warm language for ages 6-12.
+
+Rules:
+- It is okay to count visible people, animals, or objects.
+- It is okay to describe visible clothing colors, actions, and scene details.
+- If it looks like a classroom or group activity, you may describe that plainly.
+- If you are not sure, say "it looks like" or "I think".
+- Do not identify a specific person or guess their name.
+- Do not claim to know who someone is.
+- Do not infer sensitive traits such as race, ethnicity, religion, health,
+  disability, sexuality, gender identity, or private personal facts.
+- Avoid scary wording. Keep answers concise and child-friendly.
+- Reply with only the final answer.
+"""
+
 
 class Orchestrator:
     def __init__(self):
@@ -367,6 +386,114 @@ class Orchestrator:
             yield await self._speak(speech_text)
         yield {"type": "done"}
 
+    async def handle_vision_message(
+        self,
+        user_text: str,
+        image_bytes: bytes,
+        mime_type: str,
+        session_id: int,
+    ) -> AsyncGenerator[dict, None]:
+        """
+        Process a still image plus prompt through a vision-capable local model.
+
+        This path is intentionally local-only for now and does not attempt
+        person identification or cloud fallback.
+        """
+        prompt = (user_text or "").strip() or "What do you see in this picture?"
+        history = self._get_history(session_id)
+        history.append(
+            {
+                "role": "user",
+                "content": self._vision_history_text(prompt, mime_type),
+            }
+        )
+
+        if len(history) > MAX_HISTORY:
+            history[:] = history[-MAX_HISTORY:]
+
+        if not self.local_llm_ready:
+            response_text = (
+                "I need my local AI brain to wake up before I can look at pictures. "
+                "Please ask a grown-up to start Ollama for me."
+            )
+            history.append({"role": "assistant", "content": response_text})
+            yield {"type": "text", "content": response_text}
+            speech_text = self._speech_text_for_response(response_text)
+            if speech_text:
+                yield self._speech_event(speech_text, response_text)
+                yield await self._speak(speech_text)
+            yield {"type": "done"}
+            return
+
+        if not self.local_llm.supports_vision():
+            response_text = (
+                "This local model cannot look at pictures yet. "
+                "Please ask a grown-up to switch KidsChat to a Gemma 4 model."
+            )
+            history.append({"role": "assistant", "content": response_text})
+            yield {"type": "text", "content": response_text}
+            speech_text = self._speech_text_for_response(response_text)
+            if speech_text:
+                yield self._speech_event(speech_text, response_text)
+                yield await self._speak(speech_text)
+            yield {"type": "done"}
+            return
+
+        yield {"type": "status", "content": "Looking at the picture..."}
+        yield {"type": "source", "content": "local"}
+
+        response = await self.local_llm.chat(
+            system=VISION_SYSTEM_PROMPT,
+            messages=history,
+            reasoning_effort="medium",
+            images=[image_bytes],
+        )
+
+        if self._should_escalate(response):
+            yield {"type": "status", "content": "Taking a closer look..."}
+            response = await self.local_llm.chat(
+                system=VISION_SYSTEM_PROMPT,
+                messages=history,
+                reasoning_effort="high",
+                images=[image_bytes],
+            )
+
+        response_text = response.get("content", "").strip()
+        if not response_text or self._should_escalate(response):
+            response_text = (
+                "I can see the picture, but I am not fully sure about every detail. "
+                "Try asking a more specific question like how many people, what colors, "
+                "or what objects are visible."
+            )
+
+        response_text, svg_payloads = extract_svg_payloads(response_text)
+        response_text, markdown_images = self._extract_markdown_images(response_text)
+        response_text = self._default_display_text(
+            response_text,
+            markdown_images=markdown_images,
+            svg_payloads=svg_payloads,
+        )
+
+        history.append({"role": "assistant", "content": response_text})
+        if response_text:
+            yield {"type": "text", "content": response_text}
+
+        for image in markdown_images:
+            yield {"type": "image", "content": image}
+
+        for svg in svg_payloads:
+            yield {"type": "svg", "content": {"svg": svg, "title": "Picture"}}
+
+        speech_text = self._speech_text_for_response(
+            response_text,
+            markdown_images=markdown_images,
+            svg_payloads=svg_payloads,
+        )
+        if speech_text:
+            yield self._speech_event(speech_text, response_text)
+            yield await self._speak(speech_text)
+        yield {"type": "done"}
+
     # ------------------------------------------------------------------
     # Tool availability
     # ------------------------------------------------------------------
@@ -385,6 +512,11 @@ class Orchestrator:
     def _should_offer_diagram_tool(self, user_text: str) -> bool:
         """Return True only for explicit requests for chart-like visuals."""
         return bool(DIAGRAM_REQUEST_RE.search(user_text or ""))
+
+    def _vision_history_text(self, prompt: str, mime_type: str) -> str:
+        """Store a compact text marker in conversation history for image turns."""
+        suffix = f"[Image attached: {mime_type}]" if mime_type else "[Image attached]"
+        return f"{prompt}\n{suffix}".strip()
 
     # ------------------------------------------------------------------
     # Escalation detection

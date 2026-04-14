@@ -100,3 +100,38 @@ def test_audio_websocket_message_is_transcribed_and_processed(monkeypatch):
     ]
     assert events[0]["content"] == "Listening..."
     assert events[1]["content"] == "Hello from the microphone"
+
+
+def test_vision_websocket_message_is_processed(monkeypatch):
+    app = create_app()
+    monkeypatch.setattr(app.state.orchestrator, "initialize", _fake_initialize)
+
+    async def _fake_handle_vision_message(user_text, image_bytes, mime_type, session_id):
+        assert user_text == "What do you see in this picture?"
+        assert image_bytes == b"\xff\xd8fake"
+        assert mime_type == "image/jpeg"
+        yield {"type": "text", "content": "I see two children and a teacher."}
+        yield {"type": "done"}
+
+    monkeypatch.setattr(
+        app.state.orchestrator,
+        "handle_vision_message",
+        _fake_handle_vision_message,
+    )
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/chat") as ws:
+            server_state = json.loads(ws.receive_text())
+            assert server_state["type"] == "server_state"
+
+            ws.send_text(json.dumps({
+                "type": "vision",
+                "content": "What do you see in this picture?",
+                "data": "/9hmYWtl",
+                "mimeType": "image/jpeg",
+            }))
+
+            events = [json.loads(ws.receive_text()) for _ in range(2)]
+
+    assert [event["type"] for event in events] == ["text", "done"]
+    assert events[0]["content"] == "I see two children and a teacher."

@@ -125,3 +125,24 @@ def test_health_check_matches_gemma4_aliases():
     healthy = asyncio.run(llm.check_health())
 
     assert healthy is True
+
+
+def test_vision_images_are_attached_to_last_user_message():
+    client = FakeClient(response=_fake_response("I see a bright orange shirt."))
+    llm = LocalLLM(model="gemma4:31b", client=client)
+
+    result = asyncio.run(
+        llm.chat(
+            system="You are helpful.",
+            messages=[
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there"},
+                {"role": "user", "content": "What do you see in this picture?"},
+            ],
+            images=[b"fake-jpeg-bytes"],
+        )
+    )
+
+    assert result["content"] == "I see a bright orange shirt."
+    assert client.chat_calls[0]["messages"][-1]["images"] == [b"fake-jpeg-bytes"]
+    assert llm.supports_vision() is True

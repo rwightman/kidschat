@@ -12,9 +12,31 @@
   const textInput   = document.getElementById("text-input");
   const sendBtn     = document.getElementById("send-btn");
   const micBtn      = document.getElementById("mic-btn");
+  const cameraBtn   = document.getElementById("camera-btn");
   const connDot     = document.getElementById("connection-dot");
   const connText    = document.getElementById("connection-text");
   const srcBadge    = document.getElementById("source-badge");
+  const cameraModal = document.getElementById("camera-modal");
+  const cameraPreview = document.getElementById("camera-preview");
+  const cameraStill = document.getElementById("camera-still");
+  const cameraHelp = document.getElementById("camera-help");
+  const cameraPrompt = document.getElementById("camera-prompt");
+  const cameraCloseBtn = document.getElementById("camera-close-btn");
+  const cameraCaptureBtn = document.getElementById("camera-capture-btn");
+  const cameraRetakeBtn = document.getElementById("camera-retake-btn");
+  const cameraSendBtn = document.getElementById("camera-send-btn");
+  const cameraUiReady = Boolean(
+    cameraBtn &&
+    cameraModal &&
+    cameraPreview &&
+    cameraStill &&
+    cameraHelp &&
+    cameraPrompt &&
+    cameraCloseBtn &&
+    cameraCaptureBtn &&
+    cameraRetakeBtn &&
+    cameraSendBtn
+  );
 
   // ---- State ----
   let ws = null;
@@ -28,6 +50,8 @@
   let welcomeVisible = true;
   let pingTimerId = null;
   let suppressNextServerAudio = false;
+  let cameraStream = null;
+  let capturedImageDataUrl = "";
 
   // ---- WebSocket ----
   function connect() {
@@ -188,6 +212,36 @@
       currentBotBubble = bubble;
     }
 
+    scrollToBottom();
+  }
+
+  function addVisionMessage(imageDataUrl, prompt) {
+    hideWelcome();
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "message user";
+
+    const avatar = document.createElement("div");
+    avatar.className = "message-avatar";
+    avatar.textContent = "😊";
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+
+    const promptText = document.createElement("div");
+    promptText.className = "message-vision-prompt";
+    promptText.innerHTML = renderMarkdown(prompt || "What do you see in this picture?");
+    bubble.appendChild(promptText);
+
+    const img = document.createElement("img");
+    img.className = "message-vision-image";
+    img.src = imageDataUrl;
+    img.alt = "Captured picture";
+    bubble.appendChild(img);
+
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(bubble);
+    messagesEl.appendChild(wrapper);
     scrollToBottom();
   }
 
@@ -711,6 +765,151 @@
     }, delayMs);
   }
 
+  // ---- Camera / still image capture ----
+  async function openCameraModal() {
+    if (!cameraUiReady) {
+      showTemporaryStatus("The picture tool is still loading. Please refresh the page.");
+      return;
+    }
+
+    stopCameraStream();
+    resetCameraCapture();
+    cameraModal.classList.remove("hidden");
+    cameraModal.setAttribute("aria-hidden", "false");
+    cameraHelp.textContent = "Take one picture, then ask what is in it.";
+    cameraCaptureBtn.disabled = false;
+    cameraCaptureBtn.textContent = "Capture";
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      cameraHelp.textContent = "Camera access is not available here. Try opening KidsChat on localhost in Chrome or Edge and allow camera permission.";
+      cameraCaptureBtn.disabled = true;
+      cameraPrompt.focus();
+      cameraPrompt.select();
+      return;
+    }
+
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      cameraPreview.srcObject = cameraStream;
+      await cameraPreview.play();
+      cameraPrompt.focus();
+      cameraPrompt.select();
+    } catch (err) {
+      console.error("Camera access failed:", err);
+      cameraHelp.textContent = "I could not start the camera. Please allow camera access in your browser, then try again.";
+      cameraCaptureBtn.disabled = true;
+      cameraCaptureBtn.textContent = "Camera Blocked";
+      cameraPrompt.focus();
+      cameraPrompt.select();
+    }
+  }
+
+  function stopCameraStream() {
+    if (!cameraUiReady) return;
+    if (!cameraStream) return;
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+    cameraPreview.srcObject = null;
+  }
+
+  function resetCameraCapture() {
+    if (!cameraUiReady) return;
+    capturedImageDataUrl = "";
+    cameraPreview.classList.remove("hidden");
+    cameraStill.classList.add("hidden");
+    cameraStill.removeAttribute("src");
+    cameraHelp.textContent = "Take one picture, then ask what is in it.";
+    cameraCaptureBtn.classList.remove("hidden");
+    cameraCaptureBtn.disabled = false;
+    cameraCaptureBtn.textContent = "Capture";
+    cameraRetakeBtn.classList.add("hidden");
+    cameraSendBtn.classList.add("hidden");
+  }
+
+  function closeCameraModal() {
+    if (!cameraUiReady) return;
+    stopCameraStream();
+    resetCameraCapture();
+    cameraModal.classList.add("hidden");
+    cameraModal.setAttribute("aria-hidden", "true");
+  }
+
+  function captureCameraStill() {
+    if (!cameraUiReady) return;
+    if (!cameraPreview.videoWidth || !cameraPreview.videoHeight) {
+      showTemporaryStatus("The camera is not ready yet. Please try again.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = cameraPreview.videoWidth;
+    canvas.height = cameraPreview.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(cameraPreview, 0, 0, canvas.width, canvas.height);
+
+    capturedImageDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    cameraStill.src = capturedImageDataUrl;
+    cameraStill.classList.remove("hidden");
+    cameraPreview.classList.add("hidden");
+    cameraCaptureBtn.classList.add("hidden");
+    cameraRetakeBtn.classList.remove("hidden");
+    cameraSendBtn.classList.remove("hidden");
+    cameraHelp.textContent = "Looks good? Send it, or retake the picture.";
+    stopCameraStream();
+  }
+
+  async function retakeCameraStill() {
+    if (!cameraUiReady) return;
+    try {
+      await openCameraModal();
+    } catch (err) {
+      console.error("Camera retake failed:", err);
+    }
+  }
+
+  function dataUrlToBase64(dataUrl) {
+    const parts = String(dataUrl || "").split(",", 2);
+    return parts.length === 2 ? parts[1] : "";
+  }
+
+  async function sendVisionMessage() {
+    if (!cameraUiReady) {
+      showTemporaryStatus("The picture tool is still loading. Please refresh the page.");
+      return;
+    }
+    if (!capturedImageDataUrl) {
+      showTemporaryStatus("Take a picture first.");
+      return;
+    }
+
+    const prompt = cameraPrompt.value.trim() || "What do you see in this picture?";
+    const base64 = dataUrlToBase64(capturedImageDataUrl);
+    if (!base64) {
+      showTemporaryStatus("I couldn't prepare that picture. Please try again.");
+      return;
+    }
+
+    ensureAudioContext({ resume: true }).catch((err) => {
+      console.warn("Audio unlock failed:", err);
+    });
+    addVisionMessage(capturedImageDataUrl, prompt);
+    send({
+      type: "vision",
+      content: prompt,
+      data: base64,
+      mimeType: "image/jpeg",
+    });
+    closeCameraModal();
+  }
+
   // ---- Event listeners ----
 
   // Text send
@@ -794,6 +993,46 @@
     isMicHeld = false;
   });
   micBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Camera capture
+  if (cameraUiReady) {
+    cameraBtn.addEventListener("click", () => {
+      openCameraModal().catch((err) => {
+        console.error("Camera modal failed to open:", err);
+        showTemporaryStatus("I couldn't open the camera just now.");
+      });
+    });
+
+    cameraCloseBtn.addEventListener("click", closeCameraModal);
+    cameraCaptureBtn.addEventListener("click", captureCameraStill);
+    cameraRetakeBtn.addEventListener("click", () => {
+      retakeCameraStill().catch((err) => {
+        console.error("Camera retake failed:", err);
+        showTemporaryStatus("I couldn't restart the camera just now.");
+      });
+    });
+    cameraSendBtn.addEventListener("click", sendVisionMessage);
+    cameraPrompt.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && capturedImageDataUrl) {
+        e.preventDefault();
+        sendVisionMessage();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeCameraModal();
+      }
+    });
+    cameraModal.addEventListener("click", (e) => {
+      if (e.target === cameraModal) {
+        closeCameraModal();
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !cameraModal.classList.contains("hidden")) {
+        closeCameraModal();
+      }
+    });
+  }
 
   // Suggestion chips
   document.querySelectorAll(".chip").forEach((chip) => {

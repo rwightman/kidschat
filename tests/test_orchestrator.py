@@ -12,15 +12,19 @@ from backend.orchestrator import Orchestrator
 
 
 class FakeLocalLLM:
-    def __init__(self, responses):
+    def __init__(self, responses, *, vision_support=True):
         self._responses = list(responses)
         self.calls = []
+        self.vision_support = vision_support
 
     async def chat(self, **kwargs):
         self.calls.append(kwargs)
         if not self._responses:
             raise AssertionError("No fake local LLM response available")
         return self._responses.pop(0)
+
+    def supports_vision(self):
+        return self.vision_support
 
 
 class FakeCloudLLM:
@@ -95,6 +99,24 @@ class FakeSpeechPhonemizer:
 
 async def _collect_events(orchestrator, message: str, session_id: int):
     return [event async for event in orchestrator.handle_message(message, session_id)]
+
+
+async def _collect_vision_events(
+    orchestrator,
+    message: str,
+    image_bytes: bytes,
+    mime_type: str,
+    session_id: int,
+):
+    return [
+        event
+        async for event in orchestrator.handle_vision_message(
+            message,
+            image_bytes,
+            mime_type,
+            session_id,
+        )
+    ]
 
 
 @pytest.fixture
@@ -394,3 +416,40 @@ def test_speech_event_can_include_server_side_phonetic_text(fresh_orchestrator):
         }
     ]
     assert fresh_orchestrator.speech_phonemizer.calls == ["The wind is strong today."]
+
+
+def test_vision_message_uses_local_model_with_attached_image(fresh_orchestrator):
+    fresh_orchestrator.local_llm_ready = True
+    fresh_orchestrator.local_llm = FakeLocalLLM(
+        [
+            {
+                "content": "I see five children, one adult, and one child wearing an orange shirt.",
+                "tool_calls": None,
+            }
+        ]
+    )
+    fresh_orchestrator.tts = RecordingTTS()
+    fresh_orchestrator.speech_normalizer = FakeSpeechNormalizer(prefix="")
+
+    events = asyncio.run(
+        _collect_vision_events(
+            fresh_orchestrator,
+            "What do you see in this picture?",
+            b"fake-jpeg",
+            "image/jpeg",
+            1001,
+        )
+    )
+
+    assert [event["content"] for event in events if event["type"] == "status"] == [
+        "Looking at the picture..."
+    ]
+    assert [event["content"] for event in events if event["type"] == "source"] == [
+        "local"
+    ]
+    assert [event["content"] for event in events if event["type"] == "text"] == [
+        "I see five children, one adult, and one child wearing an orange shirt."
+    ]
+    assert fresh_orchestrator.local_llm.calls[0]["images"] == [b"fake-jpeg"]
+    assert fresh_orchestrator.local_llm.calls[0]["reasoning_effort"] == "medium"
+    assert "It is okay to count visible people" in fresh_orchestrator.local_llm.calls[0]["system"]

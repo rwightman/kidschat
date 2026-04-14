@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+from copy import deepcopy
 from typing import Optional
 
 import ollama
@@ -58,6 +59,7 @@ class LocalLLM:
         messages: list[dict],
         tools: Optional[list[dict]] = None,
         reasoning_effort: str = "low",
+        images: Optional[list[bytes]] = None,
     ) -> dict:
         """
         Send a chat request to the local model.
@@ -71,7 +73,7 @@ class LocalLLM:
         """
         full_system = self._build_system_prompt(system, reasoning_effort)
 
-        ollama_messages = [{"role": "system", "content": full_system}] + messages
+        ollama_messages = self._build_ollama_messages(full_system, messages, images=images)
 
         try:
             kwargs = {
@@ -115,6 +117,9 @@ class LocalLLM:
                 "content": "[ESCALATE] Local model encountered an error.",
                 "tool_calls": None,
             }
+
+    def supports_vision(self) -> bool:
+        return self._model_family() in {"gemma4"}
 
     def _model_family(self) -> str:
         model_name = self.model.lower()
@@ -183,3 +188,26 @@ class LocalLLM:
         text = GEMMA4_THOUGHT_START_RE.sub("", text, count=1)
         text = GEMMA4_THOUGHT_CLOSE_RE.sub("", text)
         return text.strip()
+
+    def _build_ollama_messages(
+        self,
+        system: str,
+        messages: list[dict],
+        *,
+        images: Optional[list[bytes]] = None,
+    ) -> list[dict]:
+        ollama_messages = [{"role": "system", "content": system}] + deepcopy(messages)
+        if not images:
+            return ollama_messages
+
+        for message in reversed(ollama_messages):
+            if message.get("role") == "user":
+                message["images"] = list(images)
+                return ollama_messages
+
+        ollama_messages.append({
+            "role": "user",
+            "content": "",
+            "images": list(images),
+        })
+        return ollama_messages

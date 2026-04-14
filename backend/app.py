@@ -65,6 +65,16 @@ DEFAULT_HEADTTS_DICTIONARY_URL = (
 )
 
 
+def get_static_version() -> str:
+    files = [
+        BASE / "frontend" / "static" / "css" / "style.css",
+        BASE / "frontend" / "static" / "js" / "app.js",
+        BASE / "frontend" / "static" / "js" / "avatar.js",
+    ]
+    mtimes = [int(path.stat().st_mtime) for path in files if path.exists()]
+    return str(max(mtimes, default=1))
+
+
 def get_avatar_config() -> dict[str, str]:
     character = os.getenv(
         "TALKING_HEAD_CHARACTER",
@@ -134,6 +144,7 @@ def create_app() -> FastAPI:
             context={
                 "request": request,
                 "avatar_config": get_avatar_config(),
+                "static_version": get_static_version(),
             },
         )
 
@@ -206,6 +217,33 @@ def create_app() -> FastAPI:
 
                         # 2) Process through orchestrator
                         async for event in orchestrator.handle_message(transcript, session_id):
+                            await ws.send_text(json.dumps(event))
+
+                    # --- Still image from webcam ----------------------------
+                    case "vision":
+                        import base64
+
+                        try:
+                            image_bytes = base64.b64decode(msg["data"])
+                        except Exception:
+                            await ws.send_text(json.dumps({
+                                "type": "status",
+                                "content": "I couldn't read that picture. Please try again!",
+                            }))
+                            continue
+
+                        prompt = msg.get("content", "") or msg.get("prompt", "")
+                        mime_type = msg.get("mimeType", "image/jpeg")
+                        log.info(
+                            f"[{session_id}] Vision: {len(image_bytes)} bytes ({mime_type})"
+                        )
+
+                        async for event in orchestrator.handle_vision_message(
+                            prompt,
+                            image_bytes,
+                            mime_type,
+                            session_id,
+                        ):
                             await ws.send_text(json.dumps(event))
 
                     # --- Ping / keepalive -------------------------------------

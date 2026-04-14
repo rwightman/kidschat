@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KidsChat 🤖</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v={{ static_version }}">
   <script type="importmap">
     {
       "imports": {
@@ -69,6 +69,13 @@
               </svg>
               <div class="mic-ripple"></div>
             </button>
+            <button id="camera-btn" class="camera-btn" type="button" title="Take picture" aria-label="Take picture">
+              <svg class="camera-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              <span class="camera-label">Photo</span>
+            </button>
             <div class="text-input-wrap">
               <input
                 type="text"
@@ -124,9 +131,51 @@
         </div>
       </aside>
     </div>
+
+    <div id="camera-modal" class="camera-modal hidden" aria-hidden="true">
+      <div class="camera-panel" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+        <div class="camera-panel-head">
+          <div>
+            <p class="camera-eyebrow">Picture Time</p>
+            <h3 id="camera-title">Ask About a Photo</h3>
+          </div>
+          <button id="camera-close-btn" class="camera-close-btn" type="button" aria-label="Close camera">✕</button>
+        </div>
+
+        <div class="camera-preview-wrap">
+          <video id="camera-preview" class="camera-preview" autoplay playsinline></video>
+          <img id="camera-still" class="camera-still hidden" alt="Captured picture preview">
+        </div>
+
+        <p id="camera-help" class="camera-help">
+          Take one picture, then ask what is in it.
+        </p>
+
+        <label class="camera-prompt-label" for="camera-prompt">Question about the picture</label>
+        <input
+          id="camera-prompt"
+          class="camera-prompt"
+          type="text"
+          value="What do you see in this picture?"
+          autocomplete="off"
+        />
+
+        <div class="camera-actions">
+          <button id="camera-capture-btn" class="camera-action-btn camera-capture-btn" type="button">
+            Capture
+          </button>
+          <button id="camera-retake-btn" class="camera-action-btn camera-secondary-btn hidden" type="button">
+            Retake
+          </button>
+          <button id="camera-send-btn" class="camera-action-btn camera-send-btn hidden" type="button">
+            Ask About Picture
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/static/js/app.js"></script>
-  <script type="module" src="/static/js/avatar.js"></script>
+  <script src="/static/js/app.js?v={{ static_version }}"></script>
+  <script type="module" src="/static/js/avatar.js?v={{ static_version }}"></script>
 </body>
 </html>
