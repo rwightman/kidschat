@@ -21,6 +21,7 @@ If you use this with children, do it with adult supervision.
 - Optional cloud escalation to Claude, OpenAI, or Gemini when API keys are configured
 - Browser-rendered talking-head avatar with HeadTTS + TalkingHead
 - Local/server fallback TTS with Piper or macOS `say`
+- Still-photo camera capture for asking a vision-capable local model about an image
 - Tool calling for:
   - image search
   - sound search/playback
@@ -54,23 +55,24 @@ If you use this with children, do it with adult supervision.
 
 - Ollama for local model hosting
 - Open-Meteo for weather
-- Openverse or Unsplash for images
-- Openverse audio for sound clips
+- Pexels / Unsplash / Openverse for images
+- Freesound / Openverse audio for sound clips
 - Optional Claude / OpenAI / Gemini cloud fallback
 
 ## High-Level Architecture
 
 1. The browser sends text or recorded audio to the backend over a WebSocket.
-2. Audio is transcribed locally with `faster-whisper`.
-3. The orchestrator sends the conversation to a local Ollama model first.
-4. If the model wants tools, the backend runs them and sends structured results back to the UI.
-5. If the local model cannot handle the prompt well enough, the app can escalate to a configured cloud provider.
-6. The backend emits:
+2. For photo questions, the browser can capture one still image and send it with a prompt over the same WebSocket.
+3. Audio is transcribed locally with `faster-whisper`.
+4. The orchestrator sends the conversation to a local Ollama model first.
+5. If the model wants tools, the backend runs them and sends structured results back to the UI.
+6. If the local model cannot handle the prompt well enough, the app can escalate to a configured cloud provider.
+7. The backend emits:
    - visible chat text
    - structured media events for images, sounds, diagrams, and SVG
    - a separate speech-only text path for TTS
-7. The frontend renders chat/media and, when available, uses the talking head to speak with browser-side TTS.
-8. If browser-side avatar speech is unavailable, the backend falls back to Piper or `say`.
+8. The frontend renders chat/media and, when available, uses the talking head to speak with browser-side TTS.
+9. If browser-side avatar speech is unavailable, the backend falls back to Piper or `say`.
 
 ## Current Feature Set
 
@@ -92,6 +94,14 @@ If you use this with children, do it with adult supervision.
 - `get_weather`: fetches current weather
 - `tell_joke`: returns kid-friendly jokes/riddles
 - `fun_fact`: returns fun facts by topic
+
+### Photo Questions
+
+- Browser camera button for capturing one still image
+- Sends the captured photo to a vision-capable local model such as Gemma 4
+- Supports child-friendly scene description such as visible objects, people counts, clothing colors, and simple activity descriptions
+- Explicitly avoids person identification and sensitive-trait guessing
+- Current flow is single-image, single-turn oriented rather than persistent visual memory across a long conversation
 
 ### Talking Head
 
@@ -116,7 +126,13 @@ The local adapter now has model-family-specific handling for some model families
 - response cleanup
 - model-specific Ollama sampling options
 
-At the moment, the app uses local models for text/tool orchestration only. Even if a model supports vision, that is not fully wired into the product flow yet.
+Gemma 4 models are also used for the current still-photo vision flow.
+That path is intentionally simple:
+
+- one captured image per request
+- local-model-only
+- no face recognition or person identification
+- best suited to scene description, counting, and visible object/clothing details
 
 ## Project Layout
 
@@ -192,6 +208,8 @@ OLLAMA_MODEL=gemma4:31b
 TTS_ENGINE=auto
 TALKING_HEAD_CHARACTER=julia
 HEADTTS_INPUT_MODE=auto
+PEXELS_API_KEY=...
+FREESOUND_API_KEY=...
 ```
 
 ### 3. Install and run Ollama
@@ -229,6 +247,10 @@ Important groups:
 - local model:
   - `OLLAMA_MODEL`
   - `OLLAMA_HOST`
+- media search:
+  - `PEXELS_API_KEY`
+  - `UNSPLASH_ACCESS_KEY`
+  - `FREESOUND_API_KEY`
 - STT:
   - `WHISPER_MODEL`
 - server TTS:
@@ -252,6 +274,7 @@ Important groups:
 - Desktop Chrome or Edge currently gives the best talking-head / browser TTS experience.
 - The app still works without the avatar path, but falls back to backend audio.
 - Microphone access must be granted in the browser.
+- Camera access must be granted in the browser to use photo questions.
 
 ## Testing
 
