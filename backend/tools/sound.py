@@ -13,11 +13,13 @@ import httpx
 
 log = logging.getLogger("kidschat.tools.sound")
 
+FREESOUND_SEARCH_API_URL = "https://freesound.org/apiv2/search/"
 OPENVERSE_AUDIO_API_URL = "https://api.openverse.org/v1/audio/"
 HTTP_HEADERS = {
     "User-Agent": "KidsChat/0.1 (local educational demo)",
 }
 SOUND_CACHE_TTL_SECONDS = int(os.getenv("SOUND_CACHE_TTL_SECONDS", "3600"))
+FREESOUND_API_KEY = os.getenv("FREESOUND_API_KEY", "").strip()
 _SOUND_CACHE: dict[str, tuple[float, dict]] = {}
 PLAYABLE_AUDIO_FILETYPES = {"mp3", "ogg", "wav", "m4a", "aac", "webm"}
 BLOCKED_TERMS = {
@@ -53,6 +55,15 @@ async def play_sound(args: dict) -> dict:
     if cached is not None:
         return cached
 
+    if FREESOUND_API_KEY:
+        try:
+            result = await _search_freesound_audio(query)
+            if result.get("sounds"):
+                _store_cached_result(cache_key, result)
+                return result
+        except Exception as e:
+            log.warning(f"Freesound audio search failed: {e}")
+
     try:
         result = await _search_openverse_audio(query)
         if result.get("sounds"):
@@ -67,6 +78,29 @@ async def play_sound(args: dict) -> dict:
     }
     _store_cached_result(cache_key, result)
     return result
+
+
+async def _search_freesound_audio(query: str) -> dict:
+    """Search Freesound for short preview clips using token auth."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            FREESOUND_SEARCH_API_URL,
+            params={
+                "query": query,
+                "page_size": 6,
+                "fields": "id,name,previews,username,url,license,duration",
+                "filter": "duration:[0 TO 20]",
+            },
+            headers={
+                **HTTP_HEADERS,
+                "Authorization": f"Token {FREESOUND_API_KEY}",
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return {"sounds": _extract_freesound_sounds(data, query)}
 
 
 async def _search_openverse_audio(query: str) -> dict:
@@ -87,6 +121,41 @@ async def _search_openverse_audio(query: str) -> dict:
         data = resp.json()
 
     return {"sounds": _extract_openverse_sounds(data, query)}
+
+
+def _extract_freesound_sounds(data: dict, query: str) -> list[dict]:
+    """Extract browser-playable sound previews from Freesound results."""
+    results = data.get("results", []) or []
+    sounds = []
+
+    for result in results:
+        previews = result.get("previews") or {}
+        url = (
+            _clean_url(previews.get("preview-hq-mp3"))
+            or _clean_url(previews.get("preview-hq-ogg"))
+            or _clean_url(previews.get("preview-lq-mp3"))
+            or _clean_url(previews.get("preview-lq-ogg"))
+        )
+        if not url:
+            continue
+
+        title = (result.get("name") or query).strip() or query
+        sound = {
+            "url": url,
+            "title": title,
+            "alt": title,
+            "autoplay": True,
+            "credit": result.get("username", "Freesound"),
+        }
+        page_url = _clean_url(result.get("url"))
+        if page_url:
+            sound["page_url"] = page_url
+
+        sounds.append(sound)
+        if len(sounds) == 3:
+            break
+
+    return sounds
 
 
 def _extract_openverse_sounds(data: dict, query: str) -> list[dict]:

@@ -1,6 +1,6 @@
 """
 Image search tool — fetches kid-safe images.
-Uses Unsplash when configured, otherwise Openverse.
+Uses Pexels or Unsplash when configured, otherwise Openverse.
 """
 
 import logging
@@ -11,9 +11,9 @@ import httpx
 
 log = logging.getLogger("kidschat.tools.search")
 
-# You can swap this for Google Custom Search, Bing, Unsplash, etc.
-# This uses the free Unsplash API as an example.
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
+PEXELS_API_URL = "https://api.pexels.com/v1/search"
 OPENVERSE_API_URL = "https://api.openverse.org/v1/images/"
 HTTP_HEADERS = {
     "User-Agent": "KidsChat/0.1 (local educational demo)",
@@ -57,7 +57,17 @@ async def search_images(args: dict) -> dict:
     # Safety filter: prepend kid-safe terms, avoid anything sketchy.
     safe_query = f"{query} for kids"
 
-    # --- Option 1: Unsplash (free, high quality) ---
+    # --- Option 1: Pexels (free key, good quality) ---
+    if PEXELS_API_KEY:
+        try:
+            result = await _search_pexels(safe_query)
+            if result.get("images"):
+                _store_cached_result(cache_key, result)
+                return result
+        except Exception as e:
+            log.warning(f"Pexels image search failed: {e}")
+
+    # --- Option 2: Unsplash (free, high quality) ---
     if UNSPLASH_ACCESS_KEY:
         try:
             result = await _search_unsplash(safe_query)
@@ -67,7 +77,7 @@ async def search_images(args: dict) -> dict:
         except Exception as e:
             log.warning(f"Unsplash image search failed: {e}")
 
-    # --- Option 2: Openverse (no API key) ---
+    # --- Option 3: Openverse (no API key) ---
     try:
         result = await _search_openverse(query)
         if result.get("images"):
@@ -82,6 +92,29 @@ async def search_images(args: dict) -> dict:
     }
     _store_cached_result(cache_key, result)
     return result
+
+
+async def _search_pexels(query: str) -> dict:
+    """Search Pexels for kid-safe photos."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            PEXELS_API_URL,
+            params={
+                "query": query,
+                "per_page": 3,
+                "orientation": "landscape",
+                "size": "medium",
+            },
+            headers={
+                "Authorization": PEXELS_API_KEY,
+                **HTTP_HEADERS,
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return {"images": _extract_pexels_images(data, query)}
 
 
 async def _search_unsplash(query: str) -> dict:
@@ -155,6 +188,39 @@ def _extract_openverse_images(data: dict, query: str) -> list[dict]:
             image["page_url"] = result["detail_url"]
         elif result.get("foreign_landing_url"):
             image["page_url"] = result["foreign_landing_url"]
+
+        images.append(image)
+        if len(images) == 3:
+            break
+
+    return images
+
+
+def _extract_pexels_images(data: dict, query: str) -> list[dict]:
+    """Extract image results from Pexels API data."""
+    results = data.get("photos", []) or []
+    images = []
+
+    for result in results:
+        src = result.get("src") or {}
+        url = (
+            src.get("large")
+            or src.get("large2x")
+            or src.get("medium")
+            or src.get("original")
+        )
+        if not url:
+            continue
+
+        alt = (result.get("alt") or query).strip() or query
+        image = {
+            "url": url,
+            "alt": alt,
+        }
+        if result.get("photographer"):
+            image["credit"] = result["photographer"]
+        if result.get("url"):
+            image["page_url"] = result["url"]
 
         images.append(image)
         if len(images) == 3:
